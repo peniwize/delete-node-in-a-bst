@@ -96,10 +96,10 @@ public:
                o Find minimum value node = log2(n)
         Space = O(log2(n))  [for call stack]
     */
-    TreeNode* deleteNode(TreeNode* root, int const key) {
+    TreeNode* deleteNode_simple(TreeNode* root, int const key) {
         if (root) {
             if (key < root->val) {
-                root->left = deleteNode(root->left, std::move(key));
+                root->left = deleteNode_simple(root->left, std::move(key));
             } else if (key == root->val) {
                 if (!root->left) {
                     auto rootRaii = std::unique_ptr<TreeNode>{root};
@@ -114,14 +114,83 @@ public:
                 } else {
                     auto minValNode = findMinValNode(root->right);
                     root->val = std::move(minValNode->val);
-                    root->right = deleteNode(root->right, minValNode->val);
+                    root->right = deleteNode_simple(root->right, minValNode->val);
                 }
             } else {
-                root->right = deleteNode(root->right, std::move(key));
+                root->right = deleteNode_simple(root->right, std::move(key));
             }
         }
 
         return root;
+    }
+
+    std::tuple<TreeNode*, TreeNode*> findMinValNodeAndParent(TreeNode* root) {
+        TreeNode* parent = nullptr;
+        while (root && root->left) {
+            parent = root;
+            root = root->left;
+        }
+        return std::make_tuple(root, parent);
+    }
+    
+    /*
+        This [more complicated] solution is optimized to eliminate:
+            o Copying/moving the node value.
+            o Finding the minimum node value twice.
+        It does this by only updating tree nodes links.
+
+        Time = O(log2(n))
+        Space = O(log2(n))
+    */
+    TreeNode* deleteNode_optimized(TreeNode* root, int const key) {
+        if (root) {
+            if (key < root->val) {
+                root->left = deleteNode_optimized(root->left, std::move(key));
+            } else if (key == root->val) {
+                if (!root->left || !root->right) {
+                    // Delete root and return its child.
+                    TreeNode* child = root->left ? root->left : root-> right;
+                    auto rootRaii = std::unique_ptr<TreeNode>{root};
+                    root = child;
+                } else { // Both children _must_ be present.
+                    auto rootRaii = std::unique_ptr<TreeNode>{root};
+
+                    // Find smallest [value] node in right sub-tree of root.
+                    assert(root->right);
+                    auto [minValNode, minValNodeParent] = findMinValNodeAndParent(root->right);
+                    
+                    // Update node links so smallest node left child is left child of root node
+                    // and parent of smallest node right child is left child of smallest node parent and
+                    // smallest node right child is right child of root node.
+                    assert(minValNode);
+                    assert(!minValNode->left);
+                    minValNode->left = root->left;
+                    if (minValNodeParent) {
+                        assert(minValNodeParent->left == minValNode);
+                        minValNodeParent->left = minValNode->right;
+                    }
+                    if (minValNode != root->right) {
+                        minValNode->right = root->right;
+                    }
+
+                    // Remove (unlink) root node from the tree.
+                    root->left = nullptr;
+                    root->right = nullptr;
+
+                    // Replace root node with smallest node in right sub-tree.
+                    root = minValNode;
+                }
+            } else {
+                root->right = deleteNode_optimized(root->right, std::move(key));
+            }
+        }
+
+        return root;
+    }
+
+    TreeNode* deleteNode(TreeNode* root, int const key) {
+        //return deleteNode_simple(root, key);
+        return deleteNode_optimized(root, key);
     }
 };
 
@@ -299,6 +368,29 @@ TEST_CASE("Case 5")
     std::vector<int> const values{50,30,70,40,60,80};
     auto root = std::unique_ptr<TreeNode>{createBst(values)};
     auto const removeValue = 50;
+    auto const expected = [&]{
+        auto result{values};
+        auto found = std::find(result.begin(), result.end(), removeValue);
+        if (result.end() != found) { result.erase(found); }
+        std::sort(result.begin(), result.end());
+        return result;
+    }();
+    { // New scope.
+        auto const start = std::chrono::steady_clock::now();
+        root.reset(Solution{}.deleteNode(root.release(), removeValue));
+        auto const result = toVector(root.get());
+        CHECK(expected == result);
+        cerr << "Elapsed time: " << elapsed_time_t{start} << '\n';
+    }
+    cerr << '\n';
+}
+
+TEST_CASE("Case 6")
+{
+    cerr << "Case 6" << '\n';
+    std::vector<int> const values{0};
+    auto root = std::unique_ptr<TreeNode>{createBst(values)};
+    auto const removeValue = 0;
     auto const expected = [&]{
         auto result{values};
         auto found = std::find(result.begin(), result.end(), removeValue);
